@@ -1,0 +1,337 @@
+// © Jerome Morrow (TradingView: Dinjin)
+// Released under the MIT License
+//@version=6
+indicator("Target Ladder Pro — MTF ATR + HIT Confirmation",
+     overlay=true, max_labels_count=500, scale=scale.right)
+
+
+//====================================================================
+// MTF ATR TARGETS (Per-TF ATR + Balloons + Per-TF X Offsets)
+//  - From: "MTF ATR Targets — Clean Baseline..." :contentReference[oaicite:2]{index=2}
+//====================================================================
+
+//--------------------
+// STYLE
+//--------------------
+labelSizeInput = input.string(
+     "Normal", "MTF Balloon Text Size",
+     options = ["Tiny","Small","Normal","Large","Huge"],
+     group="MTF • Style")
+
+f_labelSize(string sz) =>
+    switch sz
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Normal" => size.normal
+        "Large"  => size.large
+        => size.huge
+
+mtfLblSize = f_labelSize(labelSizeInput)
+
+// Anchor
+useCurrentPrice = input.bool(true, "Anchor MTF Targets To Current Chart Price", group="MTF • Style")
+
+//--------------------
+// 1H SETTINGS
+//--------------------
+show1H    = input.bool(true,  "Show 1H", group="MTF • 1H")
+tf1H      = input.timeframe("60", "Timeframe", group="MTF • 1H")
+atrLen1H  = input.int(14,     "ATR Length", group="MTF • 1H", minval=1)
+atrMul1H  = input.float(1.3,  "ATR Mult",   group="MTF • 1H", step=0.1)
+xOff1H    = input.int(0,      "Balloon X Offset (bars)", group="MTF • 1H")
+sym1H     = input.string("●", "Target Symbol", group="MTF • 1H")
+bg1H      = input.color(color.new(color.gray, 0), "Balloon BG",   group="MTF • 1H")
+tx1H      = input.color(color.lime,               "Balloon Text", group="MTF • 1H")
+lnUp1H    = input.color(color.new(color.gray, 60), "Line Upper", group="MTF • 1H")
+lnDn1H    = input.color(color.new(color.gray, 60), "Line Lower", group="MTF • 1H")
+lw1H      = input.int(1, "Line Width", group="MTF • 1H", minval=1, maxval=5)
+
+//--------------------
+// 4H SETTINGS
+//--------------------
+show4H    = input.bool(true,  "Show 4H", group="MTF • 4H")
+tf4H      = input.timeframe("240", "Timeframe", group="MTF • 4H")
+atrLen4H  = input.int(14,     "ATR Length", group="MTF • 4H", minval=1)
+atrMul4H  = input.float(1.3,  "ATR Mult",   group="MTF • 4H", step=0.1)
+xOff4H    = input.int(8,      "Balloon X Offset (bars)", group="MTF • 4H")
+sym4H     = input.string("●", "Target Symbol", group="MTF • 4H")
+bg4H      = input.color(color.new(color.orange, 0), "Balloon BG",   group="MTF • 4H")
+tx4H      = input.color(color.orange,                "Balloon Text", group="MTF • 4H")
+lnUp4H    = input.color(color.new(color.aqua, 40), "Line Upper", group="MTF • 4H")
+lnDn4H    = input.color(color.new(color.aqua, 40), "Line Lower", group="MTF • 4H")
+lw4H      = input.int(2, "Line Width", group="MTF • 4H", minval=1, maxval=5)
+
+//--------------------
+// 1D SETTINGS
+//--------------------
+show1D    = input.bool(true,  "Show 1D", group="MTF • 1D")
+tf1D      = input.timeframe("D", "Timeframe", group="MTF • 1D")
+atrLen1D  = input.int(14,     "ATR Length", group="MTF • 1D", minval=1)
+atrMul1D  = input.float(1.3,  "ATR Mult",   group="MTF • 1D", step=0.1)
+xOff1D    = input.int(16,     "Balloon X Offset (bars)", group="MTF • 1D")
+sym1D     = input.string("●", "Target Symbol", group="MTF • 1D")
+bg1D      = input.color(color.new(color.blue, 0), "Balloon BG",   group="MTF • 1D")
+tx1D      = input.color(color.aqua,               "Balloon Text", group="MTF • 1D")
+lnUp1D    = input.color(color.orange, "Line Upper", group="MTF • 1D")
+lnDn1D    = input.color(color.orange, "Line Lower", group="MTF • 1D")
+lw1D      = input.int(3, "Line Width", group="MTF • 1D", minval=1, maxval=5)
+
+//--------------------
+// 1W SETTINGS
+//--------------------
+show1W    = input.bool(false, "Show 1W", group="MTF • 1W")
+tf1W      = input.timeframe("W", "Timeframe", group="MTF • 1W")
+atrLen1W  = input.int(14,     "ATR Length", group="MTF • 1W", minval=1)
+atrMul1W  = input.float(1.3,  "ATR Mult",   group="MTF • 1W", step=0.1)
+xOff1W    = input.int(24,     "Balloon X Offset (bars)", group="MTF • 1W")
+sym1W     = input.string("●", "Target Symbol", group="MTF • 1W")
+bg1W      = input.color(color.new(color.red, 0), "Balloon BG",   group="MTF • 1W")
+tx1W      = input.color(color.white,             "Balloon Text", group="MTF • 1W")
+lnUp1W    = input.color(color.red, "Line Upper", group="MTF • 1W")
+lnDn1W    = input.color(color.red, "Line Lower", group="MTF • 1W")
+lw1W      = input.int(4, "Line Width", group="MTF • 1W", minval=1, maxval=5)
+
+//--------------------
+// HELPERS (NO LOOKAHEAD)
+//--------------------
+f_atr(string tf, int len) =>
+    request.security(syminfo.tickerid, tf, ta.atr(len), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_tfClose(string tf) =>
+    request.security(syminfo.tickerid, tf, close, barmerge.gaps_off, barmerge.lookahead_off)
+
+base(string tf) =>
+    useCurrentPrice ? close : f_tfClose(tf)
+
+//--------------------
+// MTF ATR CALCS
+//--------------------
+mtfAtr1H = f_atr(tf1H, atrLen1H)
+mtfAtr4H = f_atr(tf4H, atrLen4H)
+mtfAtr1D = f_atr(tf1D, atrLen1D)
+mtfAtr1W = f_atr(tf1W, atrLen1W)
+
+mtfUp1H = base(tf1H) + mtfAtr1H * atrMul1H
+mtfDn1H = base(tf1H) - mtfAtr1H * atrMul1H
+
+mtfUp4H = base(tf4H) + mtfAtr4H * atrMul4H
+mtfDn4H = base(tf4H) - mtfAtr4H * atrMul4H
+
+mtfUp1D = base(tf1D) + mtfAtr1D * atrMul1D
+mtfDn1D = base(tf1D) - mtfAtr1D * atrMul1D
+
+mtfUp1W = base(tf1W) + mtfAtr1W * atrMul1W
+mtfDn1W = base(tf1W) - mtfAtr1W * atrMul1W
+
+//--------------------
+// MTF PLOTS
+// (NO scale=... here; scale is set in indicator())
+//--------------------
+plot(show1H ? mtfUp1H : na, "1H Upper", color=lnUp1H, linewidth=lw1H)
+plot(show1H ? mtfDn1H : na, "1H Lower", color=lnDn1H, linewidth=lw1H)
+
+plot(show4H ? mtfUp4H : na, "4H Upper", color=lnUp4H, linewidth=lw4H)
+plot(show4H ? mtfDn4H : na, "4H Lower", color=lnDn4H, linewidth=lw4H)
+
+plot(show1D ? mtfUp1D : na, "1D Upper", color=lnUp1D, linewidth=lw1D)
+plot(show1D ? mtfDn1D : na, "1D Lower", color=lnDn1D, linewidth=lw1D)
+
+plot(show1W ? mtfUp1W : na, "1W Upper", color=lnUp1W, linewidth=lw1W)
+plot(show1W ? mtfDn1W : na, "1W Lower", color=lnDn1W, linewidth=lw1W)
+
+//--------------------
+// MTF BALLOONS (LAST BAR ONLY) — WITH PER-TF X OFFSETS
+//--------------------
+var label lb1Hu = na
+var label lb1Hd = na
+var label lb4Hu = na
+var label lb4Hd = na
+var label lb1Du = na
+var label lb1Dd = na
+var label lb1Wu = na
+var label lb1Wd = na
+
+f_balloon(label lb, int xOff, float y, string txt, color bg, color tx) =>
+    if not na(lb)
+        label.delete(lb)
+    label.new(
+        bar_index + xOff, y, txt,
+        xloc=xloc.bar_index,
+        yloc=yloc.price,
+        style=label.style_label_left,
+        size=mtfLblSize,
+        color=bg,
+        textcolor=tx)
+
+if barstate.islast
+    if show1H
+        lb1Hu := f_balloon(lb1Hu, xOff1H, mtfUp1H, "1H " + sym1H + " ↑\n" + str.tostring(mtfUp1H, format.mintick), bg1H, tx1H)
+        lb1Hd := f_balloon(lb1Hd, xOff1H, mtfDn1H, "1H " + sym1H + " ↓\n" + str.tostring(mtfDn1H, format.mintick), bg1H, tx1H)
+
+    if show4H
+        // IMPORTANT: These MUST use mtfUp4H / mtfDn4H (fixes “4H lining up with 1H” issue)
+        lb4Hu := f_balloon(lb4Hu, xOff4H, mtfUp4H, "4H " + sym4H + " ↑\n" + str.tostring(mtfUp4H, format.mintick), bg4H, tx4H)
+        lb4Hd := f_balloon(lb4Hd, xOff4H, mtfDn4H, "4H " + sym4H + " ↓\n" + str.tostring(mtfDn4H, format.mintick), bg4H, tx4H)
+
+    if show1D
+        lb1Du := f_balloon(lb1Du, xOff1D, mtfUp1D, "1D " + sym1D + " ↑\n" + str.tostring(mtfUp1D, format.mintick), bg1D, tx1D)
+        lb1Dd := f_balloon(lb1Dd, xOff1D, mtfDn1D, "1D " + sym1D + " ↓\n" + str.tostring(mtfDn1D, format.mintick), bg1D, tx1D)
+
+    if show1W
+        lb1Wu := f_balloon(lb1Wu, xOff1W, mtfUp1W, "1W " + sym1W + " ↑\n" + str.tostring(mtfUp1W, format.mintick), bg1W, tx1W)
+        lb1Wd := f_balloon(lb1Wd, xOff1W, mtfDn1W, "1W " + sym1W + " ↓\n" + str.tostring(mtfDn1W, format.mintick), bg1W, tx1W)
+
+
+//====================================================================
+// ATR TARGET + DEVIATION BANDS + HIT + LAST-N LABELS (per-bar history)
+//  - From: "ATR Target (No Secondary Targets) + Deviation Bands..." :contentReference[oaicite:3]{index=3}
+//  - NOTE: Deviation toggle does NOT control labels anymore.
+//====================================================================
+
+//--------------------
+// INPUTS
+//--------------------
+grpCore = "ATR Target • Core"
+atrLen    = input.int(14, "ATR Length", group=grpCore)
+atrMult   = input.float(1.3, "ATR Multiplier", group=grpCore)
+
+grpDev = "ATR Target • Deviation Bands"
+meanLen   = input.int(4,  "Mean MA Length", group=grpDev)
+devLen    = input.int(50, "Deviation Length", group=grpDev)
+bandCount = input.int(4,  "Deviation Bands", minval=1, maxval=4, group=grpDev)
+showDevBands = input.bool(true, "Show Deviation Bands", group=grpDev)
+
+grpLbl = "ATR Target • Labels"
+showTargetsAndHits  = input.bool(true, "Show Target/HIT Labels", group=grpLbl)
+showHistoricalTargets = input.bool(false, "Show Historical Labels (behind last N)", group=grpLbl)
+keepLastN             = input.int(4, "Keep Last N Labels", minval=1, maxval=50, group=grpLbl)
+
+grpHit = "ATR Target • HIT Filter"
+requireBand1ForHit = input.bool(false, "Require Band 1 for HIT? (if ON, outside Band 1 won't print HIT)", group=grpHit)
+
+grpDbg = "ATR Target • Debug"
+debugAttach = input.bool(false, "Debug: Show Close Markers (price-scale proof)", group=grpDbg)
+plot(debugAttach ? close : na, title="Debug: Close Markers", style=plot.style_circles, linewidth=2)
+
+//--------------------
+// ADJUSTABLE LABEL COLORS
+//--------------------
+grpCol = "ATR Target • Colors"
+targetLabelBg  = input.color(color.red,   "Target Label BG", group=grpCol)
+targetLabelTxt = input.color(color.white, "Target Label Text", group=grpCol)
+hitLabelBg     = input.color(color.green, "HIT Label BG", group=grpCol)
+hitLabelTxt    = input.color(color.white, "HIT Label Text", group=grpCol)
+
+//--------------------
+// ATR TARGET (direction = candle direction)
+//--------------------
+atrVal  = ta.atr(atrLen)
+atrDist = atrVal * atrMult
+
+int dir = 0
+if close > close[1]
+    dir := 1
+else if close < close[1]
+    dir := -1
+
+float atrTarget = na
+if dir == 1
+    atrTarget := close + atrDist
+else if dir == -1
+    atrTarget := close - atrDist
+
+//--------------------
+// MEAN + DEVIATION BANDS
+//--------------------
+mean = ta.sma(close, meanLen)
+dev  = ta.stdev(close, devLen)
+
+upper1 = mean + dev * 1
+lower1 = mean - dev * 1
+upper2 = mean + dev * 2
+lower2 = mean - dev * 2
+upper3 = mean + dev * 3
+lower3 = mean - dev * 3
+upper4 = mean + dev * 4
+lower4 = mean - dev * 4
+
+bool insideBand1 = not na(atrTarget) and (atrTarget <= upper1 and atrTarget >= lower1)
+
+//--------------------
+// HIT DETECTION (THIS CANDLE ONLY)
+//--------------------
+bool hitATR = false
+if dir == 1 and not na(atrTarget)
+    hitATR := (high >= atrTarget)
+else if dir == -1 and not na(atrTarget)
+    hitATR := (low <= atrTarget)
+
+bool finalHit = hitATR and (requireBand1ForHit ? insideBand1 : true)
+
+//--------------------
+// LABEL STORAGE (delete older labels safely)
+//--------------------
+var label[] targetLabels = array.new<label>()
+
+f_push_and_prune(_arr, _lbl, _keepN, _keepHistory) =>
+    array.push(_arr, _lbl)
+    if not _keepHistory
+        while array.size(_arr) > _keepN
+            label old = array.shift(_arr)
+            if not na(old)
+                label.delete(old)
+    else
+        int hardCap = 450
+        while array.size(_arr) > hardCap
+            label old2 = array.shift(_arr)
+            if not na(old2)
+                label.delete(old2)
+
+//--------------------
+// LABELS (ONE LABEL PER BAR; TURNS INTO HIT WHEN HIT)
+//  - Active candle includes ACTIVE PRICE
+//  - Active candle balloon bigger (not huge)
+//  - Active candle label is placed on the OPPOSITE SIDE
+//--------------------
+if showTargetsAndHits and not na(atrTarget)
+    bool isActive = barstate.islast
+
+    string baseTxt = finalHit ? "🎯 HIT" : "🎯 Target"
+    string txt = isActive
+         ? (baseTxt + "\nT: " + str.tostring(atrTarget, format.mintick) + "  P: " + str.tostring(close, format.mintick))
+         : baseTxt
+
+    color  bg  = finalHit ? hitLabelBg : targetLabelBg
+    color  tc  = finalHit ? hitLabelTxt : targetLabelTxt
+
+    lblSize2 = isActive ? size.small : size.tiny
+    lblStyle = isActive ? label.style_label_right : label.style_label_left
+
+    label t = label.new(
+         x=bar_index,
+         y=atrTarget,
+         text=txt,
+         style=lblStyle,
+         color=bg,
+         textcolor=tc,
+         size=lblSize2,
+         yloc=yloc.price
+    )
+    f_push_and_prune(targetLabels, t, keepLastN, showHistoricalTargets)
+
+//--------------------
+// PLOTS (NO FILLS) — ONLY CONTROLLED BY showDevBands
+//--------------------
+plot(showDevBands ? mean : na, "Mean (ATR Target)", color.white, 2)
+
+plot(showDevBands ? upper1 : na, "Upper 1", color.gray)
+plot(showDevBands ? lower1 : na, "Lower 1", color.gray)
+
+plot(showDevBands and bandCount >= 2 ? upper2 : na, "Upper 2", color.gray)
+plot(showDevBands and bandCount >= 2 ? lower2 : na, "Lower 2", color.gray)
+
+plot(showDevBands and bandCount >= 3 ? upper3 : na, "Upper 3", color.gray)
+plot(showDevBands and bandCount >= 3 ? lower3 : na, "Lower 3", color.gray)
+
+plot(showDevBands and bandCount >= 4 ? upper4 : na, "Upper 4", color.gray)
+plot(showDevBands and bandCount >= 4 ? lower4 : na, "Lower 4", color.gray)
