@@ -4,6 +4,12 @@
 // Version: v1.0.0
 // Last Updated: 2026-02-01
 // License: See LICENSE file in this repository (or repository root)
+//
+// IMPORTANT INTERPRETATION NOTE (Read This):
+// - The projected vertical lines are intended to suggest timing windows where price reversals are more likely.
+// - The projected MA paths (MA4 / MA4[1]) are NOT a direction forecast.
+// - The projected MA paths exist to help pinpoint WHERE projected vertical lines are expected.
+// - Use projected vertical lines as a "when" reference, not a "buy/sell" instruction.
 // =====================================================================
 
 //@version=6
