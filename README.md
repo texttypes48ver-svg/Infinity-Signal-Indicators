@@ -1,71 +1,58 @@
-# Infinity Signal Indicators
+# MTF Confluence Reporter — 4MA Table x StochRSI Table
 
-This repository contains free TradingView (Pine Script v6) indicators created by Jerome Morrow (TradingView: Dinjin).
+A multi-timeframe confluence dashboard that combines trend direction (4MA) and momentum (StochRSI) into a single confluence read with a 0–100 strength score.
 
-These tools are designed to visualize **market structure, timing, and volatility context**.  
-They are **not trading strategies** and do not generate buy or sell signals.
-
----
-
-## Download Instructions (Start Here)
-
-If you are here from YouTube:
-
-1. Click the `.pine` file you want (for example: `4MA_Projection_SD_Bands_Table.pine`)
-2. Click **Raw**
-3. Copy the entire script
-4. Paste it into a new TradingView Pine Script editor
-5. Save and add to chart
-
-No installation or account linking required.
+This tool helps answer:
+“Is the market aligned across timeframes — and how strong is that alignment?”
 
 ---
 
-## Featured Indicator
+## Components
 
-### MA4 Projection with Standard Deviation Bands
+**4MA Table**
+Represents trend direction across selected timeframes.
 
-A forward-projection indicator built around a minimal moving-average structure:
-the 4-period Simple Moving Average (MA4) and its 1-bar lagged value (MA4[1]).
+**Stoch Table**
+Represents momentum alignment across selected timeframes.
 
-This indicator is designed for **education, validation, and structural insight**, not signal generation.
+**Qualified**
+Indicates whether internal conditions support a valid confluence read.
 
-#### What This Indicator Does
+**Strength (0–100)**
+Measures agreement between trend and momentum.
 
-- Projects a prior MA behavior pattern **14 bars forward**
-- Visualizes a probable future price corridor using **4 Standard Deviation bands**
-- Highlights where an **MA4 vs MA4[1] crossover is expected**
-- Allows comparison between **projected vs live crossovers**
-- Supports bar-replay validation using manual vertical markers
+**Confluence**
+Final Bull/Bear regime output.
 
-#### Important Design Notes
-
-- Projection length is **fixed at 14 bars** (by design)
-- Historical lookback is **fixed**
-- If projections are missing, switch to an exchange with deeper historical data
-- This is **not** a strategy and does not place trades
+**Hysteresis**
+Prevents rapid regime flipping during borderline conditions.
 
 ---
 
-## Additional Indicators in This Repository
+## How I Use This Indicator
 
-This repository may also include:
+I use this as a **market context and risk-filter tool**, not an entry signal.
 
-- Target Ladder Pro (MTF ATR-based volatility targets)
-- Other experimental or educational structure tools
+- Bull confluence → favor long setups
+- Bear confluence → defensive posture
+- Qualified = NO → reduce risk
 
-Each script is self-contained and documented through accompanying videos where applicable.
-
----
-
-## Platform Notes
-
-All scripts are written for **TradingView (Pine Script v6)**.  
-Behavior may vary depending on symbol history and exchange data availability.
+Strength helps determine **how aggressive or patient** to be.
 
 ---
 
-## License
+## Indicator Settings
 
-MIT License — free to study, modify, and experiment with.  
-Use at your own risk.
+![Settings 1](images/settings-1.png)
+![Settings 2](images/settings-2.png)
+![Settings 3](images/settings-3.png)
+
+---
+
+## Install
+Copy the Pine Script into TradingView Pine Editor and add it to your chart.
+
+---
+
+## Disclaimer
+This indicator is for educational purposes only and does not provide financial advice.
