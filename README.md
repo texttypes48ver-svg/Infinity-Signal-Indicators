@@ -41,15 +41,6 @@ Strength helps determine **how aggressive or patient** to be.
 
 ---
 
-## Indicator Settings
-
-![Settings 1](images/settings-1.png)
-![Settings 2](images/settings-2.png)
-![Settings 3](images/settings-3.png)
-
-
----
-
 ## Install
 Copy the Pine Script into TradingView Pine Editor and add it to your chart.
 
