@@ -1,0 +1,214 @@
+//@version=6
+indicator("MTF 4MA Direction Dashboard — TF Alignment", overlay=true)
+
+//────────────────────────────────────────────
+// Inputs
+//────────────────────────────────────────────
+src    = input.source(close, "Source")
+maLen  = input.int(4, "4MA Length", minval=1)
+maType = input.string("EMA", "MA Type", options=["SMA","EMA","RMA","WMA"])
+
+// Timeframes
+tf1 = input.timeframe("60",  "1H")
+tf2 = input.timeframe("240", "4H")
+tf3 = input.timeframe("D",   "1D")
+tf4 = input.timeframe("W",   "1W")
+tf5 = input.timeframe("M",   "1M")
+
+// Weights
+w1 = input.float(1.0, "Weight 1H")
+w2 = input.float(1.5, "Weight 4H")
+w3 = input.float(2.0, "Weight 1D")
+w4 = input.float(2.5, "Weight 1W")
+w5 = input.float(3.0, "Weight 1M")
+
+//────────────────────────────────────────────
+// Table controls (NEW)
+//────────────────────────────────────────────
+showTable = input.bool(true, "Show Table")
+
+tblPosOpt = input.string(
+     "Top Right",
+     "Table Position",
+     options = ["Top Right","Top Left","Bottom Right","Bottom Left"]
+)
+
+// Table colors (NEW)
+tblBg     = input.color(color.new(color.black, 60), "Table Background")
+labelBg   = input.color(color.new(color.black, 0),  "Label Cell Background")
+valueBg   = input.color(color.new(color.black, 0),  "Value Cell Background")
+bullBg    = input.color(color.new(color.lime, 0),   "Bull % Background")
+bearBg    = input.color(color.new(color.red, 0),    "Bear % Background")
+gradeBg   = input.color(color.new(color.gray, 40),  "Grade Background")
+txtCol    = input.color(color.white,                "Text Color")
+borderCol = input.color(color.new(color.white, 70), "Border Color")
+
+// Resolve table position
+f_tblpos(_s) =>
+    p = position.top_right
+    if _s == "Top Left"
+        p := position.top_left
+    else if _s == "Bottom Right"
+        p := position.bottom_right
+    else if _s == "Bottom Left"
+        p := position.bottom_left
+    p
+
+//────────────────────────────────────────────
+// Moving Average
+//────────────────────────────────────────────
+f_ma(_src, _len) =>
+    float out = na
+    if maType == "SMA"
+        out := ta.sma(_src, _len)
+    else if maType == "EMA"
+        out := ta.ema(_src, _len)
+    else if maType == "RMA"
+        out := ta.rma(_src, _len)
+    else
+        out := ta.wma(_src, _len)
+    out
+
+//────────────────────────────────────────────
+// Direction per timeframe
+//────────────────────────────────────────────
+f_dir(_tf) =>
+    ma  = request.security(syminfo.tickerid, _tf, f_ma(src, maLen),
+         barmerge.gaps_off, barmerge.lookahead_off)
+    ma1 = request.security(syminfo.tickerid, _tf, f_ma(src, maLen)[1],
+         barmerge.gaps_off, barmerge.lookahead_off)
+
+    int d = 0
+    if ma > ma1
+        d := 1
+    else if ma < ma1
+        d := -1
+    d
+
+//────────────────────────────────────────────
+// Compute directions
+//────────────────────────────────────────────
+d1 = f_dir(tf1)
+d2 = f_dir(tf2)
+d3 = f_dir(tf3)
+d4 = f_dir(tf4)
+d5 = f_dir(tf5)
+
+//────────────────────────────────────────────
+// Counts
+//────────────────────────────────────────────
+upCount   = (d1==1?1:0)+(d2==1?1:0)+(d3==1?1:0)+(d4==1?1:0)+(d5==1?1:0)
+downCount = (d1==-1?1:0)+(d2==-1?1:0)+(d3==-1?1:0)+(d4==-1?1:0)+(d5==-1?1:0)
+
+//────────────────────────────────────────────
+// Weighted scoring
+//────────────────────────────────────────────
+bullW = 0.0
+bearW = 0.0
+
+if d1 == 1
+    bullW += w1
+if d1 == -1
+    bearW += w1
+
+if d2 == 1
+    bullW += w2
+if d2 == -1
+    bearW += w2
+
+if d3 == 1
+    bullW += w3
+if d3 == -1
+    bearW += w3
+
+if d4 == 1
+    bullW += w4
+if d4 == -1
+    bearW += w4
+
+if d5 == 1
+    bullW += w5
+if d5 == -1
+    bearW += w5
+
+totalW  = w1+w2+w3+w4+w5
+bullPct = totalW > 0 ? 100*bullW/totalW : 0
+bearPct = totalW > 0 ? 100*bearW/totalW : 0
+
+//────────────────────────────────────────────
+// Grade
+//────────────────────────────────────────────
+grade = "F"
+if bullPct >= 80
+    grade := "A"
+else if bullPct >= 65
+    grade := "B"
+else if bullPct >= 55
+    grade := "C"
+else if bullPct >= 45
+    grade := "D"
+
+//────────────────────────────────────────────
+// Grade condition + interpretation
+//────────────────────────────────────────────
+string gradeCond = ""
+string gradeInterp = ""
+
+if bullPct >= 80
+    gradeCond   := "Bull % ≥ 80"
+    gradeInterp := "Strong bullish alignment"
+else if bullPct >= 65
+    gradeCond   := "65 ≤ Bull % < 80"
+    gradeInterp := "Constructive bullish bias"
+else if bullPct >= 55
+    gradeCond   := "55 ≤ Bull % < 65"
+    gradeInterp := "Mild / transitional bias"
+else if bullPct >= 45
+    gradeCond   := "45 ≤ Bull % < 55"
+    gradeInterp := "Weak or mixed structure"
+else
+    gradeCond   := "Bull % < 45"
+    gradeInterp := "Bearish / poorly aligned"
+
+//────────────────────────────────────────────
+// Table (position + colors applied)
+//────────────────────────────────────────────
+var table t = na
+if barstate.isfirst
+    t := table.new(
+        f_tblpos(tblPosOpt),
+        2,
+        8,
+        bgcolor = tblBg,
+        border_color = borderCol,
+        border_width = 1
+    )
+
+if showTable and not na(t)
+    table.cell(t, 0, 0, "Aligned TFs", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 0, str.tostring(upCount)+" ↑ / "+str.tostring(downCount)+" ↓",
+               bgcolor=valueBg, text_color=txtCol)
+
+    table.cell(t, 0, 1, "Bull %", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 1, str.tostring(bullPct, "#.0")+"%",
+               bgcolor=bullBg, text_color=txtCol)
+
+    table.cell(t, 0, 2, "Bear %", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 2, str.tostring(bearPct, "#.0")+"%",
+               bgcolor=bearBg, text_color=txtCol)
+
+    table.cell(t, 0, 3, "Grade", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 3, grade,
+               bgcolor=gradeBg, text_color=txtCol)
+
+    table.cell(t, 0, 4, "Grade Condition", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 4, gradeCond, bgcolor=valueBg, text_color=txtCol)
+
+    table.cell(t, 0, 5, "Interpretation", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 5, gradeInterp, bgcolor=valueBg, text_color=txtCol)
+
+    table.cell(t, 0, 6, "MA Type", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 6, maType, bgcolor=valueBg, text_color=txtCol)
+
+    table.cell(t, 0, 7, "MA Len", bgcolor=labelBg, text_color=txtCol)
+    table.cell(t, 1, 7, str.tostring(maLen), bgcolor=valueBg, text_color=txtCol)
