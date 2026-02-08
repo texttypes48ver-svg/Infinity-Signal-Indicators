@@ -48,3 +48,19 @@ Copy the Pine Script into TradingView Pine Editor and add it to your chart.
 
 ## Disclaimer
 This indicator is for educational purposes only and does not provide financial advice.
+
+---
+
+## MTF 4MA Direction Dashboard — TF Alignment
+
+Multi-timeframe trend alignment dashboard using MA4 directional slope across 1H, 4H, 1D, 1W, and 1M timeframes.
+
+Displays:
+- Bull / Bear %
+- Alignment grade (A–F)
+- Timeframe alignment count
+- Interpretation of structure
+
+YouTube video:
+https://www.youtube.com/
+
