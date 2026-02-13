@@ -1,0 +1,307 @@
+//@version=6
+indicator("Daily & Weekly Confluence", overlay=false, max_lines_count=500, max_labels_count=500)
+
+// === Inputs (live %K/%D used by projection & main plots) ===
+lengthRSI     = input.int(14, "RSI Length", minval=1)
+lengthStoch   = input.int(14, "Stoch Length", minval=1)
+smoothK       = input.int(3,  "Smooth K", minval=1)
+smoothD       = input.int(3,  "Smooth D", minval=1)
+
+// === Pattern Window Inputs (separate for Daily vs Weekly) ===
+groupPD = "Pattern Window — Daily"
+startBarsBack_D = input.int(494, "Daily: Pattern Start (bars back)", minval=1, group=groupPD)
+endBarsBack_D   = input.int(464, "Daily: Pattern End (bars back)",   minval=1, group=groupPD)
+
+groupPW = "Pattern Window — Weekly"
+startBarsBack_W = input.int(120, "Weekly: Pattern Start (bars back)", minval=1, group=groupPW)
+endBarsBack_W   = input.int(100, "Weekly: Pattern End (bars back)",   minval=1, group=groupPW)
+
+// === Projection/Display controls (shared) ===
+shiftForward  = input.int(50,  "Shift Pattern Forward (bars)", minval=0)
+normalize     = input.bool(true, "Normalize pattern to recent range")
+showProjection= input.bool(true, "Show projected Stoch RSI")
+showVLines    = input.bool(true, "Show vertical colored lines (in indicator)")
+showArrows    = input.bool(true, "Show small arrows at crossing values")
+showBalloon   = input.bool(true, "Show single yellow balloon for next cross")
+priceLookback = input.int(200, "Price lookback for vertical line height", minval=10)
+
+// === Colors ===
+projKColor = color.new(color.white, 50)
+projDColor = color.new(color.gray, 50)
+liveKColor = color.green
+liveDColor = color.red
+var color[] cycleColors = array.new_color()
+if barstate.isfirst
+    array.push(cycleColors, color.green)
+    array.push(cycleColors, color.blue)
+    array.push(cycleColors, color.yellow)
+    array.push(cycleColors, color.red)
+
+// === Live Stoch RSI (current TF) — used by projection and live plots ===
+_r = ta.rsi(close, lengthRSI)
+_st = ta.stoch(_r, _r, _r, lengthStoch)
+K = ta.sma(_st, smoothK)
+D = ta.sma(K, smoothD)
+
+// === helpers ===
+array_min_f(_arr) =>
+    float m = na
+    for i = 0 to array.size(_arr) - 1
+        float v = array.get(_arr, i)
+        m := na(m) ? v : math.min(m, v)
+    m
+
+array_max_f(_arr) =>
+    float M = na
+    for i = 0 to array.size(_arr) - 1
+        float v = array.get(_arr, i)
+        M := na(M) ? v : math.max(M, v)
+    M
+
+scale_val(val, oldMin, oldMax, newMin, newMax) =>
+    oldMax == oldMin ? newMin : newMin + (val - oldMin) * (newMax - newMin) / (oldMax - oldMin)
+
+// === persistent containers (handles) ===
+var float[] patternK = array.new_float()
+var float[] patternD = array.new_float()
+var line[] linesK = array.new_line()
+var line[] linesD = array.new_line()
+var line[] vlines = array.new_line()
+var label[] arrowLabels = array.new_label()
+var int[] crossBars = array.new_int()
+var float[] crossYs = array.new_float()
+var label crossBalloon = na
+
+// safety limits
+maxLinesAllowed = 500
+reserveLines = 40
+maxPatternPoints = math.floor((maxLinesAllowed - reserveLines) / 2) + 1
+
+// =================== TIMEFRAME-SPECIFIC PATTERN WINDOW ===================
+// Choose which Pattern Start/End to use based on the chart timeframe
+useStartBarsBack = timeframe.isweekly ? startBarsBack_W : startBarsBack_D
+useEndBarsBack   = timeframe.isweekly ? endBarsBack_W   : endBarsBack_D
+
+// === Rebuild projection & graphics every bar (keeps balloon dynamic) ===
+while array.size(linesK) > 0
+    ln = array.pop(linesK)
+    line.delete(ln)
+while array.size(linesD) > 0
+    ln = array.pop(linesD)
+    line.delete(ln)
+while array.size(vlines) > 0
+    ln = array.pop(vlines)
+    line.delete(ln)
+while array.size(arrowLabels) > 0
+    lb = array.pop(arrowLabels)
+    label.delete(lb)
+while array.size(crossBars) > 0
+    array.pop(crossBars)
+while array.size(crossYs) > 0
+    array.pop(crossYs)
+if not na(crossBalloon)
+    label.delete(crossBalloon)
+    crossBalloon := na
+
+// compute source range (accept either order) — now using timeframe-specific inputs
+startIdx = math.max(useStartBarsBack, useEndBarsBack)
+endIdx   = math.min(useStartBarsBack, useEndBarsBack)
+count    = startIdx - endIdx + 1
+if count < 1
+    count := 1
+if count > maxPatternPoints
+    count := maxPatternPoints
+    startIdx := endIdx + count - 1
+
+// collect historical pattern (oldest -> newest)
+array.clear(patternK)
+array.clear(patternD)
+for j = 0 to count - 1
+    idx = startIdx - j
+    array.push(patternK, K[idx])
+    array.push(patternD, D[idx])
+
+// optional normalization to match recent observed range
+if normalize and array.size(patternK) > 0
+    float minK = array_min_f(patternK)
+    float maxK = array_max_f(patternK)
+    float minD = array_min_f(patternD)
+    float maxD = array_max_f(patternD)
+    lookback = array.size(patternK)
+    curMinK = ta.lowest(K, lookback)
+    curMaxK = ta.highest(K, lookback)
+    curMinD = ta.lowest(D, lookback)
+    curMaxD = ta.highest(D, lookback)
+    for ii = 0 to array.size(patternK) - 1
+        float oldK = array.get(patternK, ii)
+        float oldD = array.get(patternD, ii)
+        float newK = scale_val(oldK, minK, maxK, curMinK, curMaxK)
+        float newD = scale_val(oldD, minD, maxD, curMinD, curMaxD)
+        array.set(patternK, ii, newK)
+        array.set(patternD, ii, newD)
+
+// draw projection segments and detect crosses  (UNCHANGED)
+if showProjection
+    lenp = array.size(patternK)
+    if lenp >= 2
+        vcolIndex = 0
+        for i = 0 to lenp - 2
+            float k1 = array.get(patternK, i)
+            float k2 = array.get(patternK, i + 1)
+            float d1 = array.get(patternD, i)
+            float d2 = array.get(patternD, i + 1)
+            int x1 = bar_index + shiftForward + i
+            int x2 = x1 + 1
+            // draw projected %K segment
+            lnK = line.new(x1, k1, x2, k2, xloc=xloc.bar_index, extend=extend.none, color=projKColor, width=2)
+            array.push(linesK, lnK)
+            // draw projected %D segment
+            lnD = line.new(x1, d1, x2, d2, xloc=xloc.bar_index, extend=extend.none, color=projDColor, width=2)
+            array.push(linesD, lnD)
+            // detect crossing between endpoints
+            bool crossedUp = (k1 < d1) and (k2 > d2)
+            bool crossedDown = (k1 > d1) and (k2 < d2)
+            if crossedUp or crossedDown
+                // record projected cross bar index (x2) and estimate Y by linear interpolation
+                array.push(crossBars, x2)
+                denom = (k2 - k1) - (d2 - d1)
+                t = denom == 0.0 ? 0.5 : (-(k1 - d1)) / denom
+                t := math.max(0.0, math.min(1.0, t))
+                crossY = k1 + (k2 - k1) * t
+                array.push(crossYs, crossY)
+                // vertical colored line inside indicator pane
+                if showVLines
+                    color vcol = array.get(cycleColors, vcolIndex % array.size(cycleColors))
+                    vln = line.new(x2, 100.0, x2, 0.0, xloc=xloc.bar_index, extend=extend.both, color=vcol, style=line.style_dotted, width=1)
+                    array.push(vlines, vln)
+                    vcolIndex := vcolIndex + 1
+                // small arrow label
+                if showArrows
+                    lblText = crossedUp ? "▲" : "▼"
+                    lblColor = crossedUp ? color.green : color.red
+                    lbl = label.new(x2, crossY, text=lblText, xloc=xloc.bar_index, yloc=yloc.price, style=label.style_none, color=color.new(color.white, 100), textcolor=lblColor)
+                    array.push(arrowLabels, lbl)
+
+// place dynamic single yellow balloon at the next upcoming cross (UNCHANGED)
+if array.size(crossBars) > 0 and showBalloon
+    int earliest = na
+    float yAtEarliest = na
+    for i = 0 to array.size(crossBars) - 1
+        int cb = array.get(crossBars, i)
+        float cy = array.get(crossYs, i)
+        if cb >= bar_index
+            if na(earliest) or cb < earliest
+                earliest := cb
+                yAtEarliest := cy
+    if na(earliest)
+        earliest := array.get(crossBars, 0)
+        yAtEarliest := array.get(crossYs, 0)
+    if not na(earliest)
+        crossBalloon := label.new(earliest, yAtEarliest, xloc=xloc.bar_index, yloc=yloc.price, text="Projected Cross", style=label.style_label_up, color=color.yellow, textcolor=color.black)
+
+// === Live Stoch RSI plots (UNCHANGED) ===
+plot(K, title="%K (live)", color=liveKColor, linewidth=2)
+plot(D, title="%D (live)", color=liveDColor, linewidth=2)
+hline(80, "Overbought", color=color.gray)
+hline(20, "Oversold", color=color.gray)
+
+// =====================================================================
+//          WEEKLY (with its own settings) & DAILY CROSS ALERTS
+// =====================================================================
+
+// --- Weekly inputs (independent from live %K/%D) ---
+lenRSI_W   = input.int(14, "W: RSI Length",   minval=1, group="Weekly Settings")
+lenStoch_W = input.int(14, "W: Stoch Length", minval=1, group="Weekly Settings")
+sK_W       = input.int(3,  "W: Smooth K",     minval=1, group="Weekly Settings")
+sD_W       = input.int(3,  "W: Smooth D",     minval=1, group="Weekly Settings")
+
+stochRsi_K(_src, _rsiLen, _stLen, _sK) =>
+    _r  = ta.rsi(_src, _rsiLen)
+    _st = ta.stoch(_r, _r, _r, _stLen)
+    ta.sma(_st, _sK)
+
+stochRsi_D_fromK(_k, _sD) =>
+    ta.sma(_k, _sD)
+
+// --- Compute true WEEKLY %K/%D using WEEKLY params ---
+K_W = request.security(syminfo.tickerid, "W",
+     stochRsi_K(close, lenRSI_W, lenStoch_W, sK_W), barmerge.gaps_off, barmerge.lookahead_off)
+D_W = request.security(syminfo.tickerid, "W",
+     stochRsi_D_fromK(stochRsi_K(close, lenRSI_W, lenStoch_W, sK_W), sD_W), barmerge.gaps_off, barmerge.lookahead_off)
+
+// --- DAILY %K/%D for alerts uses the same live K/D you already compute ---
+K_D = request.security(syminfo.tickerid, "D", K, barmerge.gaps_off, barmerge.lookahead_off)
+D_D = request.security(syminfo.tickerid, "D", D, barmerge.gaps_off, barmerge.lookahead_off)
+
+// -------- Alert Controls --------
+groupW = "Weekly Alert Controls"
+imminentPctW  = input.float(3.0,  "W: Imminent distance %", step=0.1, group=groupW)
+slopeLenW     = input.int(3,      "W: Slope lookback (bars)", 1, 10, group=groupW)
+onlyOnWClose  = input.bool(true,  "W: Confirmed only on weekly close", group=groupW)
+showWDebug    = input.bool(false, "W: Plot weekly K/D here", group=groupW)
+
+groupD = "Daily Alert Controls"
+imminentPctD  = input.float(3.0,  "D: Imminent distance %", step=0.1, group=groupD)
+slopeLenD     = input.int(3,      "D: Slope lookback (bars)", 1, 10, group=groupD)
+onlyOnDClose  = input.bool(true,  "D: Confirmed only on daily close", group=groupD)
+showDDebug    = input.bool(false, "D: Plot daily K/D here", group=groupD)
+
+groupAlign = "Alignment Logic"
+useWeeklyContext     = input.bool(true, "Require Weekly Bullish Context for Daily alerts", group=groupAlign,
+     tooltip="If true, daily signals only fire when weekly context is bullish (K_W > D_W or recent weekly bullish cross).")
+recentWeeksWindow    = input.int(8, "Weekly cross lookback (weeks)", 1, 52, group=groupAlign,
+     tooltip="How many past weekly bars a bullish cross remains valid as context.")
+
+// -------- Helpers --------
+distW    = math.abs(K_W - D_W)
+basisW   = math.max(math.abs(D_W), 1e-6)
+distPctW = (distW / basisW) * 100.0
+slopeKW  = ta.linreg(K_W, slopeLenW, 0) - ta.linreg(K_W, slopeLenW, 1)
+slopeDW  = ta.linreg(D_W, slopeLenW, 0) - ta.linreg(D_W, slopeLenW, 1)
+
+distD    = math.abs(K_D - D_D)
+basisD   = math.max(math.abs(D_D), 1e-6)
+distPctD = (distD / basisD) * 100.0
+slopeKD  = ta.linreg(K_D, slopeLenD, 0) - ta.linreg(K_D, slopeLenD, 1)
+slopeDD  = ta.linreg(D_D, slopeLenD, 0) - ta.linreg(D_D, slopeLenD, 1)
+
+// -------- Weekly Conditions --------
+wConfirmedRaw = ta.crossover(K_W, D_W)
+wConfirmed    = onlyOnWClose ? (wConfirmedRaw and barstate.isconfirmed) : wConfirmedRaw
+wImminent     = (K_W < D_W) and (distPctW <= imminentPctW) and (slopeKW > 0) and (slopeDW >= 0)
+
+// Weekly “bullish context” stays valid if either K_W > D_W now OR we had a weekly cross within N weeks
+wCrossBarsAgo = ta.barssince(ta.crossover(K_W, D_W))
+weeklyContext = (K_W > D_W) or (wCrossBarsAgo <= recentWeeksWindow)
+
+// -------- Daily Conditions --------
+dConfirmedRaw = ta.crossover(K_D, D_D)
+dConfirmed    = onlyOnDClose ? (dConfirmedRaw and barstate.isconfirmed) : dConfirmedRaw
+dImminent     = (K_D < D_D) and (distPctD <= imminentPctD) and (slopeKD > 0) and (slopeDD >= 0)
+
+// -------- Alignment Logic --------
+dConfirmedAligned = useWeeklyContext ? (weeklyContext and dConfirmed) : dConfirmed
+dImminentAligned  = useWeeklyContext ? (weeklyContext and dImminent)  : dImminent
+dualConfirmed     = wConfirmed and dConfirmed // both TFs crossing up together
+
+// -------- Alerts --------
+alertcondition(wConfirmed, title="Infinity Bullish Cross (Weekly Confirmed)",
+     message="✅ Weekly Bullish Cross CONFIRMED on {{ticker}} @ {{close}} – Infinity green crossed above red.")
+alertcondition(wImminent,  title="Infinity Bullish Cross (Weekly Imminent)",
+     message="🟡 Weekly Bullish Cross NEAR on {{ticker}} @ {{close}} – Infinity green is close & turning up.")
+alertcondition(dConfirmed, title="Infinity Bullish Cross (Daily Confirmed)",
+     message="✅ Daily Bullish Cross CONFIRMED on {{ticker}} @ {{close}} – Infinity green crossed above red.")
+alertcondition(dImminent,  title="Infinity Bullish Cross (Daily Imminent)",
+     message="🟡 Daily Bullish Cross NEAR on {{ticker}} @ {{close}} – Infinity green is close & turning up.")
+alertcondition(dConfirmedAligned, title="Infinity Bullish Cross (Daily Confirmed WITH Weekly Context)",
+     message="🟢 ALIGNMENT: Weekly bullish context + Daily Bullish Cross CONFIRMED on {{ticker}} @ {{close}}.")
+alertcondition(dImminentAligned,  title="Infinity Bullish Cross (Daily Imminent WITH Weekly Context)",
+     message="🟠 ALIGNMENT: Weekly bullish context + Daily Bullish Cross NEAR on {{ticker}} @ {{close}}.")
+alertcondition(dualConfirmed, title="Infinity Bullish Cross (Dual Confirmed: Weekly + Daily)",
+     message="💥 DUAL CONFIRMED: Weekly AND Daily Bullish Cross on {{ticker}} @ {{close}}.")
+
+// Optional debug plots
+plot(showWDebug ? K_W : na, "Weekly %K", color=color.new(color.teal, 0), linewidth=2)
+plot(showWDebug ? D_W : na, "Weekly %D", color=color.new(color.orange, 0), linewidth=2)
+plot(showDDebug ? K_D : na, "Daily %K",  color=color.new(color.blue, 0), linewidth=1)
+plot(showDDebug ? D_D : na, "Daily %D",  color=color.new(color.maroon, 0), linewidth=1)
